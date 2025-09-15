@@ -1,0 +1,5 @@
+{
+  "name": "Ashutosh Quilty Boss",
+  "description": "An application that takes an image as input and generates multiple long, descriptive text-to-image prompts based on its content. Users can select the number of prompts to generate and preview them.",
+  "requestFramePermissions": []
+}
