@@ -1,78 +1,60 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-import { GoogleGenAI, Type } from "@google/genai";
+const API_KEY = localStorage.getItem('gemini_api_key');
 
-const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => {
-            const result = reader.result as string;
-            // The result is a data URL: "data:image/png;base64,iVBORw0KGgo..."
-            // We only need the base64 part.
-            resolve(result.split(',')[1]);
-        };
-        reader.onerror = (error) => reject(error);
-    });
-};
+if (!API_KEY) {
+  console.error("Gemini API Key is not found in local storage.");
+}
 
+const genAI = new GoogleGenerativeAI(API_KEY || "");
 
-export const generatePromptsFromImage = async (imageFile: File, count: number, apiKey: string): Promise<string[]> => {
-    if (!apiKey) {
-        throw new Error("API key not provided.");
+export const generatePromptsForImage = async (
+  imageData: string,
+  numberOfPrompts: number,
+  category: string,
+  additionalSentence: string
+): Promise<string[]> => {
+  if (!API_KEY) {
+    return ["Error: Gemini API Key not found. Please set it first."];
+  }
+  
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+
+    let baseInstruction = `Analyze the provided image. Based on its contents, generate ${numberOfPrompts} detailed and creative prompts for an image generation AI.`;
+
+    if (category !== 'general') {
+      baseInstruction = `Strictly following the style of a "${category}", analyze the provided image. Based on this style, generate ${numberOfPrompts} detailed prompts for an image generation AI. Every single prompt must strongly reflect the "${category}" style.`;
     }
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
+    if (additionalSentence && additionalSentence.trim() !== '') {
+      baseInstruction += ` At the end of each generated prompt, you must add the following sentence: "${additionalSentence.trim()}"`;
+    }
 
-    const base64Data = await fileToBase64(imageFile);
-
-    const imagePart = {
+    const contents = [
+      {
         inlineData: {
-            mimeType: imageFile.type,
-            data: base64Data,
+          mimeType: 'image/jpeg',
+          data: imageData,
         },
-    };
+      },
+      {
+        text: baseInstruction,
+      },
+    ];
 
-    const textPart = {
-        text: `You are a highly creative prompt generation assistant. Your task is to analyze the provided image and generate exactly ${count} distinct, long, and highly descriptive text-to-image prompts. Each prompt must be a detailed paragraph, exploring different artistic styles, moods, lighting conditions, and narrative possibilities inspired by the image. Focus on sensory details, emotional tone, and imaginative interpretations. Ensure the prompts are detailed and extensive.`,
-    };
+    const result = await model.generateContent({ contents });
+    const response = result.response;
+    const text = response.text();
+    
+    const prompts = text.split('\n').filter(p => p.trim() !== '' && !p.startsWith('*')).map(p => p.replace(/^\d+\.\s*/, '').trim());
 
-    const schema = {
-        type: Type.OBJECT,
-        properties: {
-            prompts: {
-                type: Type.ARRAY,
-                description: `An array of exactly ${count} long, detailed, and descriptive text-to-image prompts.`,
-                items: {
-                    type: Type.STRING,
-                    description: "A single, highly detailed text-to-image prompt."
-                }
-            }
-        },
-        required: ["prompts"]
-    };
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [imagePart, textPart] },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: schema,
-                temperature: 0.8,
-                topP: 0.95,
-            }
-        });
-
-        const jsonText = response.text.trim();
-        const result = JSON.parse(jsonText);
-
-        if (result && Array.isArray(result.prompts)) {
-            return result.prompts;
-        } else {
-            throw new Error("Invalid response format from API. Expected a JSON object with a 'prompts' array.");
-        }
-
-    } catch (error) {
-        console.error("Gemini API call failed:", error);
-        throw new Error("Failed to generate prompts. The model may be unable to process the request. Please try a different image or reduce the prompt count.");
+    return prompts.slice(0, numberOfPrompts);
+  } catch (error) {
+    console.error("Error generating prompts:", error);
+    if (error instanceof Error && error.message.includes('API key not valid')) {
+        return ["Error: Your Gemini API Key is not valid. Please check and re-enter it."];
     }
+    return ["An error occurred while generating prompts. Please check the console for details."];
+  }
 };

@@ -1,111 +1,136 @@
-
-import React, { useState, useCallback, useEffect } from 'react';
-import type { ImageFile } from './types';
-import Header from './components/Header';
+import React, { useState, useEffect } from 'react';
+import * as geminiService from './services/geminiService';
 import ImageUploader from './components/ImageUploader';
-import PromptControls from './components/PromptControls';
 import PromptList from './components/PromptList';
+import Loader from './components/Loader';
 import ApiKeyInput from './components/ApiKeyInput';
-import { generatePromptsFromImage } from './services/geminiService';
 
-const API_KEY_STORAGE_KEY = 'gemini-api-key';
-
-const App: React.FC = () => {
-  const [imageFile, setImageFile] = useState<ImageFile | null>(null);
-  const [promptCount, setPromptCount] = useState<number>(5);
-  const [generatedPrompts, setGeneratedPrompts] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState<string>('');
+function App() {
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [prompts, setPrompts] = useState<string[]>([]);
+  const [image, setImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [numPrompts, setNumPrompts] = useState(5);
+  
+  const [category, setCategory] = useState('general');
+  const [additionalSentence, setAdditionalSentence] = useState('');
 
   useEffect(() => {
-    // Load API key from local storage on initial mount
-    const storedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-    if (storedApiKey) {
-      setApiKey(storedApiKey);
+    const storedKey = localStorage.getItem('gemini_api_key');
+    if (storedKey) {
+      setApiKey(storedKey);
     }
   }, []);
 
-  useEffect(() => {
-    // Cleanup object URL to avoid memory leaks
-    return () => {
-      if (imageFile) {
-        URL.revokeObjectURL(imageFile.previewUrl);
-      }
-    };
-  }, [imageFile]);
-
-  const handleApiKeyChange = (key: string) => {
+  const handleApiKeySubmit = (key: string) => {
+    localStorage.setItem('gemini_api_key', key);
     setApiKey(key);
-    localStorage.setItem(API_KEY_STORAGE_KEY, key);
+    window.location.reload(); 
   };
 
-  const handleImageChange = (file: File | null) => {
-    if (imageFile) {
-      URL.revokeObjectURL(imageFile.previewUrl);
-    }
-    if (file) {
-      const previewUrl = URL.createObjectURL(file);
-      setImageFile({ file, previewUrl });
-      setGeneratedPrompts([]);
-      setError(null);
-    } else {
-      setImageFile(null);
-    }
-  };
-
-  const handleGenerate = useCallback(async () => {
-    if (!apiKey) {
-      setError("Please enter your Gemini API key first.");
+  const handleGeneratePrompts = async () => {
+    if (!image) {
+      alert("Please upload an image first.");
       return;
     }
-    if (!imageFile) {
-      setError("Please upload an image first.");
+    if (!apiKey) {
+      alert("Please enter your Gemini API Key.");
       return;
     }
     setIsLoading(true);
-    setError(null);
-    setGeneratedPrompts([]);
-
+    setPrompts([]);
     try {
-      const prompts = await generatePromptsFromImage(imageFile.file, promptCount, apiKey);
-      setGeneratedPrompts(prompts);
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : "An unknown error occurred.");
+      const generatedPrompts = await geminiService.generatePromptsForImage(
+        image,
+        numPrompts,
+        category,
+        additionalSentence
+      );
+      setPrompts(generatedPrompts);
+    } catch (error) {
+      console.error(error);
+      alert("An error occurred while generating prompts.");
     } finally {
       setIsLoading(false);
     }
-  }, [imageFile, promptCount, apiKey]);
+  };
+
+  if (!apiKey) {
+    return <ApiKeyInput onSubmit={handleApiKeySubmit} />;
+  }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-gray-200 font-sans">
-      <Header />
-      <main className="flex flex-1 overflow-hidden">
-        {/* Control Panel */}
-        <div className="w-1/3 max-w-sm flex flex-col border-r border-gray-700 bg-gray-800 p-6 space-y-6 overflow-y-auto">
-          <ImageUploader imageFile={imageFile} onImageChange={handleImageChange} />
-          <ApiKeyInput apiKey={apiKey} onApiKeyChange={handleApiKeyChange} />
-          <PromptControls
-            promptCount={promptCount}
-            setPromptCount={setPromptCount}
-            onGenerate={handleGenerate}
-            isDisabled={!imageFile || isLoading}
-          />
-        </div>
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4 md:p-8">
+      <div className="w-full max-w-4xl">
+        <header className="text-center mb-8">
+          <h1 className="text-4xl md:text-5xl font-bold text-purple-400">Ashutosh's Quilty Boss</h1>
+          <p className="text-gray-400 mt-2">Upload an image and get creative prompts instantly!</p>
+        </header>
 
-        {/* Prompt Display Panel */}
-        <div className="flex-1 flex flex-col p-6 overflow-y-auto">
-          <PromptList
-            prompts={generatedPrompts}
-            isLoading={isLoading}
-            error={error}
-            hasImage={!!imageFile}
-          />
-        </div>
-      </main>
+        <main className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div className="flex flex-col space-y-6">
+              <ImageUploader onImageUpload={setImage} />
+              
+              <div>
+                <label htmlFor="num-prompts" className="block mb-2 font-medium">Number of Prompts: {numPrompts}</label>
+                <input
+                  id="num-prompts"
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={numPrompts}
+                  onChange={(e) => setNumPrompts(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="category-select" className="block mb-2 font-medium">Category</label>
+                <select 
+                  id="category-select" 
+                  value={category} 
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="general">General (No specific style)</option>
+                  <option value="vector">Vector</option>
+                  <option value="mascot logo">Mascot Logo</option>
+                  <option value="raster illustration">Raster Illustration</option>
+                  <option value="typography">Typography</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="additional-sentence" className="block mb-2 font-medium">Add to All Prompts (Optional)</label>
+                <input
+                  type="text"
+                  id="additional-sentence"
+                  value={additionalSentence}
+                  onChange={(e) => setAdditionalSentence(e.target.value)}
+                  placeholder="e.g., in a futuristic style"
+                  className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <button
+                onClick={handleGeneratePrompts}
+                disabled={isLoading || !image}
+                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300"
+              >
+                {isLoading ? 'Generating...' : 'Generate Prompts'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-center min-h-[200px] bg-gray-900 rounded-lg p-4">
+              {isLoading ? <Loader /> : <PromptList prompts={prompts} />}
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
-};
+}
 
 export default App;
